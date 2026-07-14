@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>每日任务打卡</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <!-- Supabase SDK 改为按需加载，不再阻塞页面初始化 -->
   <style>
     /* ========== 全局重置与基础样式 ========== */
     *, *::before, *::after {
@@ -646,14 +646,45 @@
     const SUPABASE_URL = "https://mboqbzatxvayubmoxldw.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib3FiemF0eHZheXVibW94bGR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMTgwNjMsImV4cCI6MjA5OTU5NDA2M30.eGztXv2Vj6RfJbeVL-as7u-M2QiZzN2wjPF6FrmagOs";
 
-    // 初始化 Supabase 客户端（如果 CDN 加载失败，supabase 为 null）
+    // ==================== Supabase 按需加载 ====================
     let supabase = null;
-    try {
-      if (window.supabase) {
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let _supabaseLoading = false;
+    let _supabaseLoaded = false;
+
+    /**
+     * 按需加载 Supabase SDK（仅在需要云端功能时才加载 CDN）
+     * 返回 true 表示 SDK 可用，false 表示加载失败（云端模式不可用）
+     */
+    async function ensureSupabase() {
+      if (_supabaseLoaded) return supabase !== null;
+      if (_supabaseLoading) {
+        // 正在加载中，等待完成
+        return new Promise(resolve => {
+          const check = setInterval(() => {
+            if (!_supabaseLoading) { clearInterval(check); resolve(supabase !== null); }
+          }, 100);
+        });
       }
-    } catch (e) {
-      console.warn("Supabase 初始化失败，云端模式将不可用：", e);
+      _supabaseLoading = true;
+      try {
+        // 动态加载 Supabase SDK CDN
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+          s.onload = resolve;
+          s.onerror = () => reject(new Error("CDN加载失败"));
+          document.head.appendChild(s);
+        });
+        if (window.supabase && typeof window.supabase.createClient === "function") {
+          supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        }
+      } catch (e) {
+        console.warn("Supabase 加载失败，云端模式不可用：", e);
+        supabase = null;
+      }
+      _supabaseLoading = false;
+      _supabaseLoaded = true;
+      return supabase !== null;
     }
 
     // ==================== 全局常量 ====================
@@ -1175,8 +1206,9 @@
     }
 
     async function enterCloudMode() {
-      if (!supabase) {
-        alert("云端服务暂时不可用（Supabase SDK 加载失败）。\n\n请检查网络连接后刷新页面重试，或先使用"快速开始"模式。");
+      const ok = await ensureSupabase();
+      if (!ok) {
+        alert("云端服务暂时不可用（Supabase SDK 加载失败）。\n\n请检查网络连接后刷新页面重试，或先使用「快速开始」模式。");
         return;
       }
       try {
@@ -1191,7 +1223,8 @@
     }
 
     async function handleOAuthCallback() {
-      if (!supabase) return false;
+      const ok = await ensureSupabase();
+      if (!ok) return false;
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error || !session) return false;
       saveMode("cloud");
@@ -1284,15 +1317,18 @@
       // 2. 检查是否已有模式偏好
       const savedMode = getSavedMode();
       if (savedMode === "cloud") {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          storageMode = "cloud";
-          $entryScreen.classList.add("hidden");
-          $mainApp.classList.add("visible");
-          await initApp();
-          return;
+        const ok = await ensureSupabase();
+        if (ok) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            storageMode = "cloud";
+            $entryScreen.classList.add("hidden");
+            $mainApp.classList.add("visible");
+            await initApp();
+            return;
+          }
         }
-        // session 过期，回退入口页
+        // session 过期或 SDK 不可用，回退入口页
         saveMode(null);
       } else if (savedMode === "local") {
         storageMode = "local";
