@@ -646,8 +646,15 @@
     const SUPABASE_URL = "https://mboqbzatxvayubmoxldw.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib3FiemF0eHZheXVibW94bGR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMTgwNjMsImV4cCI6MjA5OTU5NDA2M30.eGztXv2Vj6RfJbeVL-as7u-M2QiZzN2wjPF6FrmagOs";
 
-    // 初始化 Supabase 客户端
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // 初始化 Supabase 客户端（如果 CDN 加载失败，supabase 为 null）
+    let supabase = null;
+    try {
+      if (window.supabase) {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      }
+    } catch (e) {
+      console.warn("Supabase 初始化失败，云端模式将不可用：", e);
+    }
 
     // ==================== 全局常量 ====================
     const STORAGE_KEY = "daily_task_schedule";
@@ -708,6 +715,7 @@
     }
 
     async function loadTasksCloud() {
+      if (!supabase) return [];
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return [];
@@ -742,6 +750,7 @@
     }
 
     async function saveTasksCloud() {
+      if (!supabase) return;
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
@@ -1166,6 +1175,10 @@
     }
 
     async function enterCloudMode() {
+      if (!supabase) {
+        alert("云端服务暂时不可用（Supabase SDK 加载失败）。\n\n请检查网络连接后刷新页面重试，或先使用"快速开始"模式。");
+        return;
+      }
       try {
         const { error } = await supabase.auth.signInWithOAuth({
           provider: "github",
@@ -1178,7 +1191,7 @@
     }
 
     async function handleOAuthCallback() {
-      // Supabase 会自动从 URL hash 中解析 session
+      if (!supabase) return false;
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error || !session) return false;
       saveMode("cloud");
@@ -1188,8 +1201,7 @@
 
     async function logout() {
       if (!confirm("确定退出登录吗？\n\n本地任务数据将被保留，但切换到本地模式后云端数据不会自动同步。")) return;
-      await supabase.auth.signOut();
-      // 退出后切回本地模式，不清数据
+      if (supabase) await supabase.auth.signOut();
       tasks = loadTasksLocal();
       saveMode("local");
       storageMode = "local";
@@ -1198,7 +1210,7 @@
     }
 
     function updateUserUI() {
-      if (storageMode === "cloud") {
+      if (storageMode === "cloud" && supabase) {
         supabase.auth.getUser().then(({ data: { user } }) => {
           if (user) {
             $userName.textContent = user.user_metadata?.user_name || user.email || "已登录";
