@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>每日任务打卡</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    /* ========== 全局重置与基础样式 ========== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: #f5f6f8;
+      color: #1a1a1a;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ========== 入口页面（模式选择） ========== */
+    .entry-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .entry-screen.hidden { display: none; }
+
+    .entry-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .entry-subtitle {
+      font-size: 14px;
+      color: #999;
+      margin-bottom: 36px;
+    }
+
+    .entry-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .entry-card {
+      display: block;
+      width: 100%;
+      padding: 20px;
+      border: 1.5px solid #e8e8e8;
+      border-radius: 12px;
+      background: #ffffff;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+
+    .entry-card:hover {
+      border-color: #3b82f6;
+      box-shadow: 0 2px 12px rgba(59,130,246,0.1);
+      transform: translateY(-1px);
+    }
+
+    .entry-card .card-icon {
+      font-size: 24px;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .entry-card .card-title {
+      font-size: 17px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .entry-card .card-desc {
+      font-size: 13px;
+      color: #999;
+    }
+
+    /* ========== 主应用容器（默认隐藏，选择模式后显示） ========== */
+    .main-app { display: none; }
+    .main-app.visible { display: block; }
+
+    .container {
+      max-width: 520px;
+      margin: 32px auto 40px;
+      padding: 28px 24px 48px;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 16px rgba(0, 0, 0, 0.04);
+    }
+
+    /* ========== 顶部标题栏 ========== */
+    .header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+    }
+
+    .header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
+    /* 用户信息区（云端模式显示） */
+    .user-bar {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-right: 8px;
+    }
+
+    .user-bar .user-name {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .user-bar .mode-btn {
+      font-size: 11px;
+      color: #aaa;
+      cursor: pointer;
+      background: none;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+
+    .user-bar .mode-btn:hover {
+      border-color: #3b82f6;
+      color: #3b82f6;
+    }
+
+    .user-bar .logout-btn {
+      font-size: 11px;
+      color: #aaa;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      padding: 2px 4px;
+    }
+
+    .user-bar .logout-btn:hover { color: #e04848; }
+
+    /* "+" 加号按钮 */
+    .add-btn {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 2px solid #1a1a1a;
+      background: #ffffff;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      color: #1a1a1a;
+      flex-shrink: 0;
+    }
+
+    .add-btn:hover {
+      background: #1a1a1a;
+      color: #ffffff;
+    }
+
+    .add-btn:active { transform: scale(0.94); }
+
+    /* ========== 加载中 ========== */
+    .loading-text {
+      text-align: center;
+      padding: 40px 0;
+      color: #bbb;
+      font-size: 14px;
+    }
+
+    /* ========== 空状态提示 ========== */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #b0b0b0;
+      font-size: 15px;
+    }
+
+    .empty-state .empty-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    /* ========== 任务卡片 ========== */
+    .task-card {
+      display: flex;
+      align-items: flex-start;
+      padding: 16px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+      position: relative;
+      flex-wrap: wrap;
+    }
+
+    .task-card:hover {
+      background: #fafbfc;
+      transform: translateX(4px);
+    }
+
+    .task-card.paused {
+      opacity: 0.55;
+      background: #fafafa;
+    }
+
+    .task-card.paused:hover { background: #f5f5f5; }
+
+    .task-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .task-time {
+      font-size: 13px;
+      color: #888;
+      letter-spacing: 0.3px;
+      margin-bottom: 3px;
+      font-variant-numeric: tabular-nums;
+      cursor: pointer;
+      display: inline-block;
+      border-radius: 3px;
+      padding: 1px 4px;
+      margin-left: -4px;
+      transition: background 0.15s ease;
+    }
+
+    .task-time:hover { background: #f0f2f5; }
+
+    .task-name {
+      font-size: 17px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 3px;
+      padding: 1px 4px;
+      margin-left: -4px;
+      transition: background 0.15s ease;
+      display: inline-block;
+    }
+
+    .task-name:hover { background: #f0f2f5; }
+
+    .paused-badge {
+      display: inline-block;
+      font-size: 11px;
+      color: #999;
+      background: #f0f0f0;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 8px;
+      vertical-align: middle;
+      letter-spacing: 0.5px;
+    }
+
+    .edit-input {
+      font-family: inherit;
+      font-size: 17px;
+      font-weight: 500;
+      color: #1a1a1a;
+      border: none;
+      border-bottom: 2px solid #3b82f6;
+      background: transparent;
+      outline: none;
+      padding: 0;
+      width: 100%;
+    }
+
+    .edit-time-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .edit-time-input {
+      font-family: inherit;
+      font-size: 13px;
+      color: #555;
+      border: 1.5px solid #ddd;
+      border-radius: 4px;
+      padding: 2px 6px;
+      outline: none;
+      background: #fff;
+      width: 68px;
+    }
+
+    .edit-time-input:focus { border-color: #3b82f6; }
+
+    .edit-time-sep {
+      font-size: 13px;
+      color: #888;
+      flex-shrink: 0;
+    }
+
+    .task-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: 12px;
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+
+    .checkbox-wrapper {
+      position: relative;
+      width: 26px;
+      height: 26px;
+      cursor: pointer;
+    }
+
+    .checkbox-wrapper input[type="checkbox"] {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .custom-checkbox {
+      width: 26px;
+      height: 26px;
+      border: 2px solid #ccc;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      background: #ffffff;
+    }
+
+    .checkbox-wrapper input:checked + .custom-checkbox {
+      background: #1a1a1a;
+      border-color: #1a1a1a;
+    }
+
+    .custom-checkbox::after {
+      content: "";
+      display: block;
+      width: 6px;
+      height: 11px;
+      border: solid #ffffff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg) translateY(-0.5px);
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    }
+
+    .checkbox-wrapper input:checked + .custom-checkbox::after { opacity: 1; }
+
+    .pause-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      font-size: 15px;
+      cursor: pointer;
+      color: #bbb;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+
+    .pause-btn:hover { color: #888; background: #f3f3f3; }
+
+    .delete-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      font-size: 16px;
+      cursor: pointer;
+      color: #bbb;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+
+    .delete-btn:hover { color: #e04848; background: #fff0f0; }
+    .delete-btn:active { transform: scale(0.9); }
+
+    .delinquency {
+      width: 100%;
+      font-size: 12px;
+      color: #d48484;
+      margin-top: 6px;
+      padding-left: 0;
+      letter-spacing: 0.3px;
+    }
+
+    /* ========== 模态弹窗 ========== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 28px 24px 20px;
+      width: 90%;
+      max-width: 380px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+      transform: translateY(10px);
+      transition: transform 0.2s ease;
+    }
+
+    .modal-overlay.active .modal { transform: translateY(0); }
+
+    .modal h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    .modal .form-group { margin-bottom: 16px; }
+
+    .modal .form-group label {
+      display: block;
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+
+    .modal .form-group input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: inherit;
+      transition: border-color 0.15s ease;
+      outline: none;
+    }
+
+    .modal .form-group input:focus { border-color: #1a1a1a; }
+
+    .time-range { display: flex; align-items: center; gap: 8px; }
+    .time-range input { flex: 1; }
+    .time-range .time-separator { color: #888; font-size: 14px; flex-shrink: 0; }
+
+    .modal-buttons { display: flex; gap: 10px; margin-top: 24px; }
+
+    .modal-buttons button {
+      flex: 1;
+      padding: 10px 0;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: none;
+    }
+
+    .btn-cancel { background: #f3f3f3; color: #666; }
+    .btn-cancel:hover { background: #e8e8e8; }
+    .btn-confirm { background: #1a1a1a; color: #ffffff; }
+    .btn-confirm:hover { background: #333; }
+    .btn-confirm:active { transform: scale(0.97); }
+
+    /* ========== "给自己放个假" ========== */
+    .vacation-link {
+      font-size: 12px;
+      color: #3b82f6;
+      cursor: pointer;
+      text-decoration: none;
+      margin-left: 14px;
+      flex-shrink: 0;
+      user-select: none;
+      background: #f7f7f7;
+      padding: 4px 10px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .vacation-link:hover { color: #2563eb; background: #eff2f5; border-color: #dde4ed; }
+
+    .vacation-link.active { color: #c08070; background: #fef5f0; border-color: #f0d8c8; }
+    .vacation-link.active:hover { color: #b06050; background: #fde8d8; }
+
+    .vacation-banner {
+      background: #fdf6f0;
+      border: 1px solid #f0e0d0;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      color: #8a6d4b;
+    }
+
+    .vacation-banner .vacation-text { flex: 1; min-width: 0; }
+
+    .vacation-banner .cancel-vacation-btn {
+      background: none;
+      border: 1px solid #d0c0a0;
+      border-radius: 4px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      color: #999;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .vacation-banner .cancel-vacation-btn:hover { border-color: #c06060; color: #c06060; }
+
+    .date-indicator { font-size: 13px; color: #aaa; margin-bottom: 20px; }
+
+    @media (max-width: 400px) {
+      .container { margin: 12px 8px 20px; padding: 20px 14px 32px; border-radius: 12px; }
+      .task-name { font-size: 16px; }
+      .task-card:hover { transform: none; }
+      .entry-screen { padding: 16px; }
+      .entry-title { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ========== 入口页面：选择存储模式 ========== -->
+  <div class="entry-screen" id="entryScreen">
+    <div class="entry-title">每日任务打卡</div>
+    <div class="entry-subtitle">选择一种方式开始</div>
+    <div class="entry-cards">
+      <div class="entry-card" id="btnLocal">
+        <span class="card-icon">⚡</span>
+        <div class="card-title">快速开始</div>
+        <div class="card-desc">适合固定设备使用，数据保存在当前浏览器中，无需登录</div>
+      </div>
+      <div class="entry-card" id="btnCloud">
+        <span class="card-icon">☁️</span>
+        <div class="card-title">账号登录</div>
+        <div class="card-desc">适合多设备切换使用，数据同步至云端，通过 GitHub 一键登录</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 主应用（默认隐藏） ========== -->
+  <div class="main-app" id="mainApp">
+    <div class="container">
+      <div class="header">
+        <h1>每日任务</h1>
+        <a class="vacation-link" id="vacationLink" href="javascript:void(0)" title="一键暂停所有任务">🏖️ 给自己放个假~</a>
+        <div class="user-bar" id="userBar">
+          <span class="user-name" id="userName"></span>
+          <button class="logout-btn" id="logoutBtn" title="退出登录" style="display:none">退出</button>
+        </div>
+        <button class="add-btn" id="addBtn" title="添加新任务">+</button>
+      </div>
+
+      <div class="vacation-banner" id="vacationBanner"></div>
+      <div class="date-indicator" id="dateIndicator"></div>
+
+      <div class="task-list" id="taskList">
+        <div class="empty-state">
+          <span class="empty-icon">☕</span>
+          还没有任务，点击右上角 "+" 添加
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 添加任务的弹窗 ========== -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <h2>添加任务</h2>
+      <div class="form-group">
+        <label for="taskNameInput">任务名称</label>
+        <input type="text" id="taskNameInput" placeholder="例如：学习" maxlength="30" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>时间区间</label>
+        <div class="time-range">
+          <input type="time" id="startTimeInput" value="09:00">
+          <span class="time-separator">至</span>
+          <input type="time" id="endTimeInput" value="10:00">
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="cancelBtn">取消</button>
+        <button class="btn-confirm" id="confirmBtn">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* =================================================================
+     * Supabase 配置（部署上线前需替换为你的实际值，当前已填好）
+     * ================================================================= */
+    const SUPABASE_URL = "https://mboqbzatxvayubmoxldw.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib3FiemF0eHZheXVibW94bGR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMTgwNjMsImV4cCI6MjA5OTU5NDA2M30.eGztXv2Vj6RfJbeVL-as7u-M2QiZzN2wjPF6FrmagOs";
+
+    // 初始化 Supabase 客户端
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // ==================== 全局常量 ====================
+    const STORAGE_KEY = "daily_task_schedule";
+    const VACATION_KEY = "daily_task_vacation";
+    const MODE_KEY = "task_storage_mode";        // "local" | "cloud"
+    const CLOUD_TABLE = "task_data";
+
+    // ==================== 当前模式 ====================
+    let storageMode = "local";  // "local" | "cloud"
+
+    function getSavedMode() { return localStorage.getItem(MODE_KEY); }
+    function saveMode(m) { localStorage.setItem(MODE_KEY, m); storageMode = m; }
+
+    // ==================== DOM 元素引用 ====================
+    const $entryScreen = document.getElementById("entryScreen");
+    const $mainApp     = document.getElementById("mainApp");
+    const $taskList    = document.getElementById("taskList");
+    const $addBtn      = document.getElementById("addBtn");
+    const $modalOverlay = document.getElementById("modalOverlay");
+    const $taskNameInput  = document.getElementById("taskNameInput");
+    const $startTimeInput = document.getElementById("startTimeInput");
+    const $endTimeInput   = document.getElementById("endTimeInput");
+    const $cancelBtn   = document.getElementById("cancelBtn");
+    const $confirmBtn  = document.getElementById("confirmBtn");
+    const $dateIndicator = document.getElementById("dateIndicator");
+    const $vacationLink  = document.getElementById("vacationLink");
+    const $vacationBanner = document.getElementById("vacationBanner");
+    const $btnLocal    = document.getElementById("btnLocal");
+    const $btnCloud    = document.getElementById("btnCloud");
+    const $userBar     = document.getElementById("userBar");
+    const $userName    = document.getElementById("userName");
+    const $logoutBtn   = document.getElementById("logoutBtn");
+
+    // ==================== 数据模型 ====================
+    let tasks = [];
+
+    // ==================== DataLayer：本地 & 云端统一接口 ====================
+
+    async function loadTasks() {
+      if (storageMode === "cloud") return await loadTasksCloud();
+      return loadTasksLocal();
+    }
+
+    function loadTasksLocal() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      try {
+        const data = JSON.parse(raw);
+        for (const task of data) {
+          if (task.paused === undefined) task.paused = false;
+        }
+        return data;
+      } catch (e) {
+        console.warn("任务数据损坏，已重置。原因：", e);
+        localStorage.removeItem(STORAGE_KEY);
+        return [];
+      }
+    }
+
+    async function loadTasksCloud() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return [];
+
+        const { data, error } = await supabase
+          .from(CLOUD_TABLE)
+          .select("data")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (error) { console.error("云端加载失败：", error); return []; }
+        if (!data || !data.data) return [];
+
+        const tasksArr = typeof data.data === "string" ? JSON.parse(data.data) : data.data;
+        for (const task of tasksArr) {
+          if (task.paused === undefined) task.paused = false;
+        }
+        return tasksArr;
+      } catch (e) {
+        console.error("云端加载异常：", e);
+        return [];
+      }
+    }
+
+    async function saveTasks() {
+      if (storageMode === "cloud") { saveTasksCloud(); return; }
+      saveTasksLocal();
+    }
+
+    function saveTasksLocal() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    }
+
+    async function saveTasksCloud() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { error } = await supabase
+          .from(CLOUD_TABLE)
+          .upsert({
+            user_id: user.id,
+            data: JSON.stringify(tasks),
+            updated_at: new Date().toISOString()
+          }, { onConflict: "user_id" });
+
+        if (error) console.error("云端保存失败：", error);
+      } catch (e) {
+        console.error("云端保存异常：", e);
+      }
+    }
+
+    // ==================== 日期工具函数 ====================
+
+    function getTodayStr() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function formatDateStr(dateStr) {
+      const d = new Date(dateStr);
+      const weekDays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      const wd = weekDays[d.getDay()];
+      return `${y}年${m}月${day}日 ${wd}`;
+    }
+
+    function getDateAfterNDays(n) {
+      const d = new Date(getTodayStr() + "T00:00:00");
+      d.setDate(d.getDate() + n);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    // ==================== 休假模式 ====================
+
+    function getVacationInfo() {
+      const raw = localStorage.getItem(VACATION_KEY);
+      if (!raw) return null;
+      try { return JSON.parse(raw); }
+      catch (e) { localStorage.removeItem(VACATION_KEY); return null; }
+    }
+
+    function saveVacationInfo(info) { localStorage.setItem(VACATION_KEY, JSON.stringify(info)); }
+    function clearVacationInfo() { localStorage.removeItem(VACATION_KEY); }
+
+    function getRemainingVacationDays(vacationInfo) {
+      const today = new Date(getTodayStr() + "T00:00:00");
+      const end   = new Date(vacationInfo.endDate + "T00:00:00");
+      return Math.max(0, Math.ceil((end - today) / (1000 * 60 * 60 * 24)));
+    }
+
+    function checkVacationEnd() {
+      const vacationInfo = getVacationInfo();
+      if (!vacationInfo) return false;
+      const today = getTodayStr();
+      if (today >= vacationInfo.endDate) {
+        const prePausedIds = vacationInfo.prePausedIds || [];
+        for (const task of tasks) {
+          if (!prePausedIds.includes(task.id)) {
+            task.paused = false;
+            task.lastResetDate = today;
+            task.completed = false;
+          }
+        }
+        clearVacationInfo();
+        saveTasks();
+        return true;
+      }
+      return false;
+    }
+
+    function startVacation(days) {
+      const today = getTodayStr();
+      const endDate = getDateAfterNDays(days);
+      const prePausedIds = tasks.filter(t => t.paused).map(t => t.id);
+      for (const task of tasks) { task.paused = true; task.completed = false; }
+      saveVacationInfo({ endDate, prePausedIds });
+      saveTasks();
+      renderTasks();
+    }
+
+    function cancelVacation() {
+      if (!confirm("确定提前结束休假吗？\n\n所有原本活跃的任务将立即恢复。")) return;
+      const vacationInfo = getVacationInfo();
+      if (!vacationInfo) return;
+      const prePausedIds = vacationInfo.prePausedIds || [];
+      const today = getTodayStr();
+      for (const task of tasks) {
+        if (!prePausedIds.includes(task.id)) {
+          task.paused = false;
+          task.lastResetDate = today;
+          task.completed = false;
+        }
+      }
+      clearVacationInfo();
+      saveTasks();
+      renderTasks();
+    }
+
+    function updateVacationUI() {
+      const vacationInfo = getVacationInfo();
+      if (vacationInfo) {
+        const remaining = getRemainingVacationDays(vacationInfo);
+        const endDateFormatted = formatDateStr(vacationInfo.endDate);
+        $vacationLink.textContent = `🏖️ 休假中 (剩${remaining}天)`;
+        $vacationLink.classList.add("active");
+        $vacationBanner.style.display = "flex";
+        $vacationBanner.innerHTML = `<span class="vacation-text">🏖️ 休假中，将于 ${endDateFormatted} 零点自动恢复</span><button class="cancel-vacation-btn" onclick="cancelVacation()">提前结束</button>`;
+      } else {
+        $vacationLink.textContent = "🏖️ 给自己放个假~";
+        $vacationLink.classList.remove("active");
+        $vacationBanner.style.display = "none";
+      }
+    }
+
+    function showVacationPrompt() {
+      const vacationInfo = getVacationInfo();
+      if (vacationInfo) {
+        const remaining = getRemainingVacationDays(vacationInfo);
+        alert(`当前正在休假中，还剩 ${remaining} 天。\n\n如需提前结束，请点击横幅上的"提前结束"按钮。`);
+        return;
+      }
+      const input = prompt("请输入休息天数：", "1");
+      if (input === null) return;
+      const days = parseInt(input, 10);
+      if (isNaN(days) || days <= 0 || days > 365) { alert("请输入 1 ~ 365 之间的整数"); return; }
+      const endDate = getDateAfterNDays(days);
+      const confirmMsg = `确认休息 ${days} 天吗？\n\n所有任务将立即暂停，直到 ${formatDateStr(endDate)} 零点自动恢复。`;
+      if (!confirm(confirmMsg)) return;
+      startVacation(days);
+    }
+
+    // ==================== 零点重置 ====================
+
+    async function performDailyReset() {
+      const today = getTodayStr();
+      checkVacationEnd();
+      let changed = false;
+
+      for (const task of tasks) {
+        if (task.paused) continue;
+        if (task.lastResetDate === today) continue;
+        if (task.lastResetDate && task.lastResetDate !== today) {
+          if (!task.completed) task.delinquencyCount = (task.delinquencyCount || 0) + 1;
+          task.completed = false;
+        }
+        task.lastResetDate = today;
+        changed = true;
+      }
+
+      if (changed) { await saveTasks(); renderTasks(); }
+      scheduleMidnightReset();
+    }
+
+    function scheduleMidnightReset() {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      const msUntilMidnight = midnight - now;
+      if (scheduleMidnightReset._timer) clearTimeout(scheduleMidnightReset._timer);
+      scheduleMidnightReset._timer = setTimeout(() => performDailyReset(), msUntilMidnight);
+    }
+
+    // ==================== 渲染 ====================
+
+    function sortTasks(taskList) {
+      return [...taskList].sort((a, b) => {
+        if (a.startTime < b.startTime) return -1;
+        if (a.startTime > b.startTime) return 1;
+        if (a.endTime < b.endTime) return -1;
+        if (a.endTime > b.endTime) return 1;
+        return 0;
+      });
+    }
+
+    function renderTasks() {
+      const sorted = sortTasks(tasks);
+
+      if (sorted.length === 0) {
+        $taskList.innerHTML = `<div class="empty-state"><span class="empty-icon">☕</span>还没有任务，点击右上角 "+" 添加</div>`;
+        $dateIndicator.textContent = formatDateStr(getTodayStr());
+        updateVacationUI();
+        return;
+      }
+
+      $taskList.innerHTML = sorted.map(task => {
+        const checkedAttr = task.completed ? "checked" : "";
+        const disabledAttr = task.paused ? "disabled" : "";
+        const hasDelinquency = task.delinquencyCount > 0;
+        const pausedClass = task.paused ? " paused" : "";
+        const pauseIcon = task.paused ? "▶" : "⏸";
+        const pauseTitle = task.paused ? "恢复任务" : "暂停任务";
+
+        let delinquencyHTML = "";
+        if (task.paused && hasDelinquency) {
+          delinquencyHTML = `<div class="delinquency">拖欠任务次数：${task.delinquencyCount}（已冻结）</div>`;
+        } else if (!task.paused && hasDelinquency) {
+          delinquencyHTML = `<div class="delinquency">拖欠任务次数：${task.delinquencyCount}</div>`;
+        }
+
+        const pausedBadgeHTML = task.paused ? `<span class="paused-badge">已暂停</span>` : "";
+
+        return `<div class="task-card${pausedClass}" data-task-id="${task.id}">
+          <div class="task-info">
+            <div class="task-time" onclick="startEditTime('${task.id}')" title="点击编辑时间">${task.startTime} — ${task.endTime}</div>
+            <div class="task-name" onclick="startEditName('${task.id}')" title="点击编辑名称">${escapeHTML(task.name)}${pausedBadgeHTML}</div>
+            ${delinquencyHTML}
+          </div>
+          <div class="task-actions">
+            <label class="checkbox-wrapper" title="${task.paused ? '暂停中，不可勾选' : '标记完成'}">
+              <input type="checkbox" ${checkedAttr} ${disabledAttr} onchange="toggleComplete('${task.id}')">
+              <span class="custom-checkbox"></span>
+            </label>
+            <button class="pause-btn" title="${pauseTitle}" onclick="togglePause('${task.id}')">${pauseIcon}</button>
+            <button class="delete-btn" title="删除任务" onclick="deleteTask('${task.id}')">✕</button>
+          </div>
+        </div>`;
+      }).join("");
+
+      $dateIndicator.textContent = formatDateStr(getTodayStr());
+      updateVacationUI();
+    }
+
+    function escapeHTML(str) {
+      const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" };
+      return str.replace(/[&<>"']/g, c => map[c]);
+    }
+
+    // ==================== 用户操作：增/删/改 ====================
+
+    function addTask(name, startTime, endTime) {
+      const trimmedName = name.trim();
+      if (!trimmedName) { alert("请输入任务名称"); return; }
+      if (startTime >= endTime) { alert("结束时间必须晚于开始时间"); return; }
+
+      const hasOverlap = tasks.some(t =>
+        (startTime >= t.startTime && startTime < t.endTime) ||
+        (endTime > t.startTime && endTime <= t.endTime) ||
+        (startTime <= t.startTime && endTime >= t.endTime)
+      );
+      if (hasOverlap) { if (!confirm("该时间段与已有任务重叠，是否仍要添加？")) return; }
+
+      const newTask = {
+        id: String(Date.now()), name: trimmedName, startTime, endTime,
+        completed: false, delinquencyCount: 0,
+        lastResetDate: getTodayStr(), paused: false
+      };
+
+      tasks.push(newTask);
+      saveTasks();
+      renderTasks();
+    }
+
+    function toggleComplete(taskId) {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+      if (task.paused) { renderTasks(); return; }
+      task.completed = !task.completed;
+      saveTasks();
+      renderTasks();
+    }
+
+    function deleteTask(taskId) {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+      if (!confirm(`确定删除任务「${task.name}」吗？\n\n此操作不可撤销，拖欠记录也将一并清除。`)) return;
+      tasks = tasks.filter(t => t.id !== taskId);
+      saveTasks();
+      renderTasks();
+    }
+
+    function togglePause(taskId) {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+      task.paused = !task.paused;
+      if (!task.paused) { task.lastResetDate = getTodayStr(); task.completed = false; }
+      saveTasks();
+      renderTasks();
+    }
+
+    // ==================== 内联编辑 ====================
+
+    let _editingId = null;
+    let _editBackup = null;
+    let _editingType = null;
+
+    function startEditName(taskId) {
+      if (_editingId === taskId) return;
+      if (_editingId) commitEdit();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+      _editingId = taskId;
+      _editingType = "name";
+      const $name = document.querySelector(`.task-card[data-task-id="${taskId}"] .task-name`);
+      _editBackup = $name.innerHTML;
+      $name.innerHTML = `<input class="edit-input" id="editNameInput" value="${escapeHTML(task.name)}">`;
+      const $input = document.getElementById("editNameInput");
+      $input.focus(); $input.select();
+      $input.addEventListener("blur", () => commitEditName(taskId));
+      $input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); commitEditName(taskId); }
+        if (e.key === "Escape") { e.preventDefault(); cancelEdit(taskId); }
+      });
+    }
+
+    function commitEditName(taskId) {
+      if (_editingId !== taskId) return;
+      const $input = document.getElementById("editNameInput");
+      if (!$input) { cancelEdit(taskId); return; }
+      const newName = $input.value.trim();
+      if (!newName) { cancelEdit(taskId); return; }
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) { cancelEdit(taskId); return; }
+      if (newName === task.name) { cancelEdit(taskId); return; }
+      task.name = newName;
+      _editingId = null; _editBackup = null; _editingType = null;
+      saveTasks(); renderTasks();
+    }
+
+    function startEditTime(taskId) {
+      if (_editingId === taskId) return;
+      if (_editingId) commitEdit();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+      _editingId = taskId;
+      _editingType = "time";
+      const $time = document.querySelector(`.task-card[data-task-id="${taskId}"] .task-time`);
+      _editBackup = $time.innerHTML;
+      $time.innerHTML = `<span class="edit-time-row"><input class="edit-time-input" id="editStartInput" type="time" value="${task.startTime}"><span class="edit-time-sep">至</span><input class="edit-time-input" id="editEndInput" type="time" value="${task.endTime}"></span>`;
+      const $start = document.getElementById("editStartInput");
+      const $end   = document.getElementById("editEndInput");
+      function onKey(e) {
+        if (e.key === "Enter") { e.preventDefault(); commitEditTime(taskId); }
+        if (e.key === "Escape") { e.preventDefault(); cancelEdit(taskId); }
+      }
+      $start.addEventListener("keydown", onKey);
+      $end.addEventListener("keydown", onKey);
+      $start.focus();
+    }
+
+    function commitEditTime(taskId) {
+      if (_editingId !== taskId) return;
+      const $start = document.getElementById("editStartInput");
+      const $end   = document.getElementById("editEndInput");
+      if (!$start || !$end) { cancelEdit(taskId); return; }
+      const newStart = $start.value;
+      const newEnd   = $end.value;
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) { cancelEdit(taskId); return; }
+      if (newStart === task.startTime && newEnd === task.endTime) { cancelEdit(taskId); return; }
+      if (newStart >= newEnd) { alert("结束时间必须晚于开始时间"); return; }
+      const conflict = tasks.find(t => t.id !== taskId && newStart < t.endTime && t.startTime < newEnd);
+      if (conflict) {
+        if (!confirm(`该时间段与「${conflict.name}」(${conflict.startTime}—${conflict.endTime}) 重叠，确定要这样改吗？`)) {
+          cancelEdit(taskId); return;
+        }
+      }
+      task.startTime = newStart; task.endTime = newEnd;
+      _editingId = null; _editBackup = null; _editingType = null;
+      saveTasks(); renderTasks();
+    }
+
+    function commitEdit() {
+      if (!_editingId) return;
+      if (_editingType === "name") commitEditName(_editingId);
+      else if (_editingType === "time") commitEditTime(_editingId);
+      else cancelEdit(_editingId);
+    }
+
+    function cancelEdit(taskId) {
+      if (_editingId !== taskId) return;
+      if (_editingType === "name") {
+        const $name = document.querySelector(`.task-card[data-task-id="${taskId}"] .task-name`);
+        if ($name && _editBackup) $name.innerHTML = _editBackup;
+      } else if (_editingType === "time") {
+        const $time = document.querySelector(`.task-card[data-task-id="${taskId}"] .task-time`);
+        if ($time && _editBackup) $time.innerHTML = _editBackup;
+      }
+      _editingId = null; _editBackup = null; _editingType = null;
+    }
+
+    // ==================== 弹窗控制 ====================
+
+    function showModal() {
+      const sorted = sortTasks(tasks);
+      if (sorted.length > 0) {
+        const lastTask = sorted[sorted.length - 1];
+        $startTimeInput.value = lastTask.endTime;
+        const [h, m] = lastTask.endTime.split(":").map(Number);
+        const endH = String((h + 1) % 24).padStart(2, "0");
+        $endTimeInput.value = `${endH}:${String(m).padStart(2, "0")}`;
+      }
+      $taskNameInput.value = "";
+      $modalOverlay.classList.add("active");
+      setTimeout(() => $taskNameInput.focus(), 150);
+    }
+
+    function hideModal() { $modalOverlay.classList.remove("active"); }
+
+    // ==================== 模式切换与登录 ====================
+
+    async function enterLocalMode() {
+      saveMode("local");
+      storageMode = "local";
+      $entryScreen.classList.add("hidden");
+      $mainApp.classList.add("visible");
+      await initApp();
+    }
+
+    async function enterCloudMode() {
+      try {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "github",
+          options: { redirectTo: window.location.href.split("?")[0] }
+        });
+        if (error) { alert("登录失败：" + error.message); }
+      } catch (e) {
+        alert("登录异常：" + e.message);
+      }
+    }
+
+    async function handleOAuthCallback() {
+      // Supabase 会自动从 URL hash 中解析 session
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session) return false;
+      saveMode("cloud");
+      storageMode = "cloud";
+      return true;
+    }
+
+    async function logout() {
+      if (!confirm("确定退出登录吗？\n\n本地任务数据将被保留，但切换到本地模式后云端数据不会自动同步。")) return;
+      await supabase.auth.signOut();
+      // 退出后切回本地模式，不清数据
+      tasks = loadTasksLocal();
+      saveMode("local");
+      storageMode = "local";
+      renderTasks();
+      updateUserUI();
+    }
+
+    function updateUserUI() {
+      if (storageMode === "cloud") {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (user) {
+            $userName.textContent = user.user_metadata?.user_name || user.email || "已登录";
+            $logoutBtn.style.display = "inline";
+          }
+        });
+      } else {
+        $userName.textContent = "";
+        $logoutBtn.style.display = "none";
+      }
+    }
+
+    // ==================== 事件绑定 ====================
+
+    $btnLocal.addEventListener("click", () => enterLocalMode());
+    $btnCloud.addEventListener("click", () => enterCloudMode());
+    $vacationLink.addEventListener("click", showVacationPrompt);
+    $addBtn.addEventListener("click", showModal);
+    $cancelBtn.addEventListener("click", hideModal);
+    $logoutBtn.addEventListener("click", logout);
+
+    $modalOverlay.addEventListener("click", (e) => { if (e.target === $modalOverlay) hideModal(); });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        if (_editingId) { cancelEdit(_editingId); return; }
+        if ($modalOverlay.classList.contains("active")) { hideModal(); }
+      }
+    });
+
+    document.addEventListener("mousedown", (e) => {
+      if (!_editingId) return;
+      const t = e.target;
+      if (t.id === "editNameInput" || t.id === "editStartInput" || t.id === "editEndInput") return;
+      commitEdit();
+    });
+
+    $confirmBtn.addEventListener("click", () => {
+      addTask($taskNameInput.value, $startTimeInput.value, $endTimeInput.value);
+      hideModal();
+    });
+
+    $modalOverlay.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && $modalOverlay.classList.contains("active")) {
+        e.preventDefault();
+        addTask($taskNameInput.value, $startTimeInput.value, $endTimeInput.value);
+        hideModal();
+      }
+    });
+
+    // ==================== 启动 ====================
+
+    async function initApp() {
+      tasks = await loadTasks();
+      await performDailyReset();
+      renderTasks();
+      updateUserUI();
+      scheduleMidnightReset();
+    }
+
+    async function init() {
+      // 1. 先检查是否是 GitHub OAuth 回调
+      const isCloudCallback = await handleOAuthCallback();
+      if (isCloudCallback) {
+        $entryScreen.classList.add("hidden");
+        $mainApp.classList.add("visible");
+        await initApp();
+        return;
+      }
+
+      // 2. 检查是否已有模式偏好
+      const savedMode = getSavedMode();
+      if (savedMode === "cloud") {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          storageMode = "cloud";
+          $entryScreen.classList.add("hidden");
+          $mainApp.classList.add("visible");
+          await initApp();
+          return;
+        }
+        // session 过期，回退入口页
+        saveMode(null);
+      } else if (savedMode === "local") {
+        storageMode = "local";
+        $entryScreen.classList.add("hidden");
+        $mainApp.classList.add("visible");
+        await initApp();
+        return;
+      }
+
+      // 3. 无偏好 → 显示入口页
+      $entryScreen.classList.remove("hidden");
+    }
+
+    init();
+  </script>
+</body>
+</html>
