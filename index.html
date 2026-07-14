@@ -528,6 +528,24 @@
     .vacation-link.active { color: #c08070; background: #fef5f0; border-color: #f0d8c8; }
     .vacation-link.active:hover { color: #b06050; background: #fde8d8; }
 
+    /* 本地模式切换至云端的按钮 */
+    .cloud-upgrade-btn {
+      font-size: 11px;
+      color: #3b82f6;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      padding: 3px 10px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+      margin-left: 8px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .cloud-upgrade-btn:hover { background: #dbeafe; border-color: #93c5fd; }
+
     .vacation-banner {
       background: #fdf6f0;
       border: 1px solid #f0e0d0;
@@ -597,6 +615,7 @@
       <div class="header">
         <h1>每日任务</h1>
         <a class="vacation-link" id="vacationLink" href="javascript:void(0)" title="一键暂停所有任务">🏖️ 给自己放个假~</a>
+        <button class="cloud-upgrade-btn" id="cloudUpgradeBtn" title="切换至云端同步模式">☁ 切换至云端</button>
         <div class="user-bar" id="userBar">
           <span class="user-name" id="userName"></span>
           <button class="logout-btn" id="logoutBtn" title="退出登录" style="display:none">退出</button>
@@ -667,12 +686,19 @@
       }
       _supabaseLoading = true;
       try {
-        // 动态加载 Supabase SDK CDN
+        // 动态加载 Supabase SDK（unpkg 源，指定版本确保稳定）
         await new Promise((resolve, reject) => {
           const s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+          s.src = "https://unpkg.com/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js";
           s.onload = resolve;
-          s.onerror = () => reject(new Error("CDN加载失败"));
+          s.onerror = () => {
+            // 回退：尝试 jsdelivr CDN
+            const s2 = document.createElement("script");
+            s2.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js";
+            s2.onload = resolve;
+            s2.onerror = () => reject(new Error("所有CDN源均加载失败"));
+            document.head.appendChild(s2);
+          };
           document.head.appendChild(s);
         });
         if (window.supabase && typeof window.supabase.createClient === "function") {
@@ -718,6 +744,7 @@
     const $userBar     = document.getElementById("userBar");
     const $userName    = document.getElementById("userName");
     const $logoutBtn   = document.getElementById("logoutBtn");
+    const $cloudUpgradeBtn = document.getElementById("cloudUpgradeBtn");
 
     // ==================== 数据模型 ====================
     let tasks = [];
@@ -1197,6 +1224,23 @@
 
     // ==================== 模式切换与登录 ====================
 
+    /**
+     * 从本地模式升级到云端模式（仅显示在本地模式标题栏的按钮）
+     * 会提示用户是否将本地已有数据一并迁移至云端
+     */
+    function upgradeToCloud() {
+      const localData = loadTasksLocal();
+      if (localData.length > 0) {
+        const msg = "检测到本地有 " + localData.length + " 个任务。\n\n是否将这些任务同步至云端？\n\n- 点击「确定」：本地数据上传至云端\n- 点击「取消」：仅切换到云端模式，本地数据保留在浏览器中";
+        if (confirm(msg)) {
+          localStorage.setItem("migrate_local_tasks", "true");
+        } else {
+          localStorage.removeItem("migrate_local_tasks");
+        }
+      }
+      enterCloudMode();
+    }
+
     async function enterLocalMode() {
       saveMode("local");
       storageMode = "local";
@@ -1208,13 +1252,13 @@
     async function enterCloudMode() {
       const ok = await ensureSupabase();
       if (!ok) {
-        alert("云端服务暂时不可用（Supabase SDK 加载失败）。\n\n请检查网络连接后刷新页面重试，或先使用「快速开始」模式。");
+        alert("云端服务暂时不可用（Supabase SDK 加载失败）。\n\n请检查网络连接，刷新页面后重试。");
         return;
       }
       try {
         const { error } = await supabase.auth.signInWithOAuth({
           provider: "github",
-          options: { redirectTo: window.location.href.split("?")[0] }
+          options: { redirectTo: window.location.origin + window.location.pathname }
         });
         if (error) { alert("登录失败：" + error.message); }
       } catch (e) {
@@ -1244,6 +1288,7 @@
 
     function updateUserUI() {
       if (storageMode === "cloud" && supabase) {
+        $cloudUpgradeBtn.style.display = "none";
         supabase.auth.getUser().then(({ data: { user } }) => {
           if (user) {
             $userName.textContent = user.user_metadata?.user_name || user.email || "已登录";
@@ -1251,6 +1296,7 @@
           }
         });
       } else {
+        $cloudUpgradeBtn.style.display = "inline";
         $userName.textContent = "";
         $logoutBtn.style.display = "none";
       }
@@ -1260,6 +1306,7 @@
 
     $btnLocal.addEventListener("click", () => enterLocalMode());
     $btnCloud.addEventListener("click", () => enterCloudMode());
+    $cloudUpgradeBtn.addEventListener("click", upgradeToCloud);
     $vacationLink.addEventListener("click", showVacationPrompt);
     $addBtn.addEventListener("click", showModal);
     $cancelBtn.addEventListener("click", hideModal);
@@ -1294,6 +1341,30 @@
       }
     });
 
+    /**
+     * 如果用户从本地模式升级到云端，将本地数据上传至云端
+     */
+    async function handleLocalMigration() {
+      const shouldMigrate = localStorage.getItem("migrate_local_tasks");
+      if (shouldMigrate !== "true") return;
+      localStorage.removeItem("migrate_local_tasks");
+
+      const localTasks = loadTasksLocal();
+      if (localTasks.length === 0) return;
+
+      // 检查云端是否已有数据
+      const cloudTasks = await loadTasksCloud();
+      if (cloudTasks.length > 0) {
+        // 云端已有数据，合并
+        const merge = confirm("云端已有 " + cloudTasks.length + " 个任务。\n\n是否将本地 " + localTasks.length + " 个任务合并到云端？\n（选择「取消」将仅使用云端数据，本地数据保留在浏览器中）");
+        if (!merge) return;  // 不合并，使用云端数据
+      }
+
+      // 上传本地数据（合并或覆盖）
+      tasks = localTasks;
+      await saveTasksCloud();
+    }
+
     // ==================== 启动 ====================
 
     async function initApp() {
@@ -1310,6 +1381,8 @@
       if (isCloudCallback) {
         $entryScreen.classList.add("hidden");
         $mainApp.classList.add("visible");
+        // 检查是否有本地数据需要迁移到云端
+        await handleLocalMigration();
         await initApp();
         return;
       }
